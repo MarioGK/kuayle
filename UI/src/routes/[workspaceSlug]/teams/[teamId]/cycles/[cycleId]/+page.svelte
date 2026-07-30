@@ -7,6 +7,7 @@
 	import { updateIssue } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
+	import { getWorkspace } from '$lib/api/workspaces';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { Cycle } from '$lib/types/cycle';
@@ -28,6 +29,8 @@
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
+	import { hasPermission } from '$lib/security/permissions';
+	import type { Role } from '$lib/security/roles';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -38,6 +41,9 @@
 	let actionsOpen = $state(false);
 	let members = $state<WorkspaceMember[]>([]);
 	let labels = $state<Label[]>([]);
+	let workspaceRole = $state<Role>('guest');
+	const canManageCycles = $derived(hasPermission(workspaceRole, 'cycle:manage'));
+	const canUpdateIssues = $derived(hasPermission(workspaceRole, 'issue:update'));
 
 	let lastSelectedId = $state<string | null>(null);
 
@@ -64,16 +70,18 @@
 
 	onMount(async () => {
 		try {
-			const [c, m, l, cyc] = await Promise.all([
+			const [c, m, l, cyc, workspace] = await Promise.all([
 				getCycle(slug, teamId, cycleId),
 				listMembers(slug),
 				listLabels(slug),
-				listCycles(slug, teamId)
+				listCycles(slug, teamId),
+				getWorkspace(slug)
 			]);
 			cycle = c;
 			members = m;
 			labels = l;
 			allCycles = cyc;
+			workspaceRole = workspace.current_user_role as Role;
 			// Load team statuses for this team
 			teamStatusesState.load(slug, teamId);
 			// Load issues for this cycle using server-side cycle filter
@@ -91,6 +99,7 @@
 	let searchingAvailable = $state(false);
 
 	async function searchAvailableIssues() {
+		if (!canUpdateIssues) return;
 		if (!addSearchQuery.trim()) {
 			availableIssues = [];
 			return;
@@ -111,12 +120,12 @@
 	}
 
 	function handleComplete() {
-		if (!cycle) return;
+		if (!cycle || !canManageCycles) return;
 		showComplete = true;
 	}
 
 	async function handleCompleteSubmit(data: { retrospective?: string; carry_over: boolean }) {
-		if (!cycle) return;
+		if (!cycle || !canManageCycles) return;
 		try {
 			const result = await completeCycle(slug, teamId, cycle.id, {
 				retrospective: data.retrospective,
@@ -131,7 +140,7 @@
 	}
 
 	async function handleActivate() {
-		if (!cycle) return;
+		if (!cycle || !canManageCycles) return;
 		try {
 			cycle = await updateCycle(slug, teamId, cycle.id, { status: 'active' });
 			appToast.success(m['cycles.toast.activated']());
@@ -141,7 +150,7 @@
 	}
 
 	async function handleDelete() {
-		if (!cycle) return;
+		if (!cycle || !canManageCycles) return;
 		try {
 			await deleteCycle(slug, teamId, cycle.id);
 			appToast.success(m['cycles.toast.deleted']());
@@ -152,7 +161,7 @@
 	}
 
 	async function handleDateRangeChange(start: string, end: string) {
-		if (!cycle) return;
+		if (!cycle || !canManageCycles) return;
 		try {
 			cycle = await updateCycle(slug, teamId, cycle.id, { start_date: start, end_date: end });
 			appToast.success(m['cycles.toast.dates_updated']());
@@ -162,6 +171,7 @@
 	}
 
 	async function handleAddIssueToCycle(issue: Issue) {
+		if (!canUpdateIssues) return;
 		try {
 			await updateIssue(slug, issue.identifier, { cycle_id: cycleId });
 			// Reload to reflect change
@@ -215,6 +225,7 @@
 					{cycle.status}
 				</Badge>
 			</div>
+			{#if canManageCycles}
 			<div class="flex shrink-0 items-center gap-2">
 				{#if cycle.status === 'upcoming'}
 					<Button size="sm" onclick={handleActivate}>
@@ -245,18 +256,23 @@
 					</Popover.Content>
 				</Popover.Root>
 			</div>
+			{/if}
 		</div>
 
 		<!-- Cycle info -->
 		<div class="border-b border-[var(--app-border)] px-3 py-3 sm:px-6 sm:py-4">
 			<div class="flex flex-wrap items-center gap-3 sm:gap-6">
 				<div class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
-					<DateRangePickerPopover
-						startDate={cycle.start_date}
-						endDate={cycle.end_date}
-						onchange={handleDateRangeChange}
-						placeholder={m['cycles.select_dates']()}
-					/>
+					{#if canManageCycles}
+						<DateRangePickerPopover
+							startDate={cycle.start_date}
+							endDate={cycle.end_date}
+							onchange={handleDateRangeChange}
+							placeholder={m['cycles.select_dates']()}
+						/>
+					{:else if cycle.start_date || cycle.end_date}
+						<span>{cycle.start_date?.slice(0, 10) ?? ''} to {cycle.end_date?.slice(0, 10) ?? ''}</span>
+					{/if}
 				</div>
 				{#if cycle.progress}
 					<div class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
@@ -292,6 +308,7 @@
 		</div>
 
 		<!-- Add issues section -->
+		{#if canUpdateIssues}
 		<div class="border-b border-[var(--app-border)] px-3 py-3 sm:px-6">
 			<div class="relative">
 				<div class="flex items-center gap-2 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5">
@@ -307,7 +324,7 @@
 					/>
 				</div>
 				{#if addSearchOpen && availableIssues.length > 0}
-					<div class="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-md border border-[var(--app-border)] bg-[var(--color-bg-primary)] shadow-lg">
+					<div class="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] shadow-lg">
 						{#each availableIssues as issue}
 							<button
 								onmousedown={() => handleAddIssueToCycle(issue)}
@@ -322,6 +339,7 @@
 				{/if}
 			</div>
 		</div>
+		{/if}
 
 		<!-- Issues list -->
 		<div class="flex-1 overflow-y-auto">
@@ -339,10 +357,12 @@
 	{/if}
 </div>
 
-<CompleteCycleDialog
-	bind:open={showComplete}
-	cycle={cycle}
-	{incompleteCount}
-	{nextUpcomingCycle}
-	onsubmit={handleCompleteSubmit}
-/>
+{#if canManageCycles}
+	<CompleteCycleDialog
+		bind:open={showComplete}
+		cycle={cycle}
+		{incompleteCount}
+		{nextUpcomingCycle}
+		onsubmit={handleCompleteSubmit}
+	/>
+{/if}
