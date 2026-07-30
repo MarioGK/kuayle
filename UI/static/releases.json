@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.1.16",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.16",
+    "body": "## What's Changed\r\n* fix: cycle issue search dropdown has transparent background & missing prosemirror deps by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/57\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.15...v0.1.16",
+    "published_at": "2026-07-30T14:23:31Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.16",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.15",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.15",
     "body": "## What's Changed\r\n* feat(i18n): add internationalization with zh-CN/zh-TW support by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/50\r\n\r\n## New Contributors\r\n* @uiYzzi made their first contribution in https://github.com/carbogninalberto/kuayle/pull/50\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.14...v0.1.15",
