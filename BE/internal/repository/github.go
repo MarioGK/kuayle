@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type GitHubRepository struct {
@@ -53,6 +53,12 @@ func (r *GitHubRepository) UpdateInstallationToken(ctx context.Context, id uuid.
 	return err
 }
 
+func (r *GitHubRepository) ActivateImportedInstallation(ctx context.Context, id uuid.UUID, installationID int64, accountLogin, accountType string, installedBy uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE github_installations SET installation_id=$1,account_login=$2,account_type=$3,installed_by=$4,access_token=NULL,token_expires_at=NULL,updated_at=NOW() WHERE id=$5 AND installation_id<0`,
+		installationID, accountLogin, accountType, installedBy, id)
+	return err
+}
+
 func (r *GitHubRepository) DeleteInstallation(ctx context.Context, workspaceID uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM github_installations WHERE workspace_id = $1`, workspaceID)
 	return err
@@ -62,7 +68,11 @@ func (r *GitHubRepository) DeleteInstallation(ctx context.Context, workspaceID u
 
 func (r *GitHubRepository) CreateRepo(ctx context.Context, repo *domain.GitHubRepoModel) error {
 	query := `INSERT INTO github_repos (id, installation_id, workspace_id, github_repo_id, full_name, default_branch, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at`
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (workspace_id, github_repo_id) DO UPDATE SET
+			installation_id=EXCLUDED.installation_id,full_name=EXCLUDED.full_name,
+			default_branch=EXCLUDED.default_branch,is_active=EXCLUDED.is_active
+		RETURNING created_at`
 	return r.db.QueryRowContext(ctx, query,
 		repo.ID, repo.InstallationID, repo.WorkspaceID, repo.GitHubRepoID, repo.FullName, repo.DefaultBranch, repo.IsActive,
 	).Scan(&repo.CreatedAt)

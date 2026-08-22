@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { getWorkspace, updateWorkspace, deleteWorkspace } from '$lib/api/workspaces';
+	import { getWorkspace, updateWorkspace, deleteWorkspace, downloadWorkspaceExport } from '$lib/api/workspaces';
 	import type { Workspace } from '$lib/types/workspace';
 	import { onMount } from 'svelte';
 	import { appToast } from '$lib/features/toast/toast';
@@ -9,7 +9,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
-	import { Trash2 } from 'lucide-svelte';
+	import { Trash2, Download, Loader2 } from 'lucide-svelte';
+	import WorkspaceImportDialog from '$lib/features/workspaces/WorkspaceImportDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -24,6 +25,7 @@
 	let showDelete = $state(false);
 	let deleteConfirm = $state('');
 	let deleting = $state(false);
+	let exporting = $state(false);
 
 	const minRoleOptions = $derived([
 		{ value: 'owner', label: m['settings.role_owner']() },
@@ -43,6 +45,19 @@
 			(workspace?.owner_id && authState.user?.id === workspace.owner_id) ||
 			false
 	);
+	const canTransfer = $derived(workspace?.current_user_role === 'owner' || workspace?.current_user_role === 'admin');
+
+	async function handleExport() {
+		exporting = true;
+		try {
+			await downloadWorkspaceExport(slug);
+			appToast.success(m['workspace_transfer.exported']());
+		} catch (err: any) {
+			appToast.apiError(err, m['workspace_transfer.export_failed']());
+		} finally {
+			exporting = false;
+		}
+	}
 
 	async function handleNameBlur() {
 		if (!workspace || wsName.trim() === workspace.name) return;
@@ -211,6 +226,33 @@
 			<p class="mt-3 text-xs text-[var(--color-text-tertiary)]">
 				{m['settings.general.only_owner_edit']()}
 			</p>
+		{/if}
+
+		{#if canTransfer}
+			<div class="mt-10">
+				<h2 class="text-base font-medium text-[var(--color-text-primary)]">{m['workspace_transfer.title']()}</h2>
+				<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">{m['workspace_transfer.description']()}</p>
+				<div class="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+					<div class="flex items-center justify-between gap-4 px-5 py-4">
+						<div>
+							<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['workspace_transfer.export_title']()}</p>
+							<p class="text-xs text-[var(--color-text-tertiary)]">{m['workspace_transfer.export_description']()}</p>
+						</div>
+						<Button variant="outline" onclick={handleExport} disabled={exporting}>
+							{#if exporting}<Loader2 size={14} class="animate-spin" />{:else}<Download size={14} />{/if}
+							{exporting ? m['workspace_transfer.exporting']() : m['workspace_transfer.export_button']()}
+						</Button>
+					</div>
+					<div class="border-t border-[var(--app-border)]"></div>
+					<div class="flex items-center justify-between gap-4 px-5 py-4">
+						<div>
+							<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['workspace_transfer.import_title']()}</p>
+							<p class="text-xs text-[var(--color-text-tertiary)]">{m['workspace_transfer.import_new_description']()}</p>
+						</div>
+						<WorkspaceImportDialog compact />
+					</div>
+				</div>
+			</div>
 		{/if}
 
 		<!-- Danger zone -->

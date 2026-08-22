@@ -14,6 +14,8 @@
 			const workspaces = await listWorkspaces();
 			if (workspaces.length > 0) {
 				goto(`/${workspaces[0].slug}/inbox`);
+			} else {
+				goto('/workspace-setup');
 			}
 		} catch {
 			goto('/login');

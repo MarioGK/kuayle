@@ -5,9 +5,8 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Password } from '$lib/components/ui/password';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
-	import { listWorkspaces, createWorkspace } from '$lib/api/workspaces';
+	import { listWorkspaces } from '$lib/api/workspaces';
 	import { demoMode, demoUsers, type DemoUser } from '$lib/demo';
-	import { createDefaultWorkspace } from '$lib/utils/default-workspace';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -38,9 +37,7 @@
 			if (workspaces.length > 0) {
 				goto(`/${workspaces[0].slug}/inbox`);
 			} else {
-				// Create default workspace
-				const ws = await createDefaultWorkspace(user.name, createWorkspace);
-				goto(`/${ws.slug}/inbox`);
+				goto('/workspace-setup');
 			}
 		} catch (err: any) {
 			appToast.apiError(err, m['login.error_generic']());

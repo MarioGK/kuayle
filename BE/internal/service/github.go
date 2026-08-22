@@ -289,7 +289,7 @@ func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspac
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil {
+	if existing != nil && existing.InstallationID > 0 {
 		return existing, nil
 	}
 
@@ -312,7 +312,12 @@ func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspac
 		InstalledBy:    userID,
 	}
 
-	if err := s.ghRepo.CreateInstallation(ctx, inst); err != nil {
+	if existing != nil {
+		inst.ID = existing.ID
+		if err := s.ghRepo.ActivateImportedInstallation(ctx, existing.ID, installationID, ghInst.Account.Login, ghInst.Account.Type, userID); err != nil {
+			return nil, err
+		}
+	} else if err := s.ghRepo.CreateInstallation(ctx, inst); err != nil {
 		return nil, err
 	}
 
@@ -344,7 +349,7 @@ func (s *GitHubService) GetStatus(ctx context.Context, workspaceID uuid.UUID) (*
 	inst, _ := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
 
 	resp := &dto.GitHubStatusResponse{
-		Installed: inst != nil,
+		Installed: inst != nil && inst.InstallationID > 0,
 		Repos:     []dto.GitHubRepoResponse{},
 	}
 
@@ -362,7 +367,7 @@ func (s *GitHubService) GetStatus(ctx context.Context, workspaceID uuid.UUID) (*
 		}
 	}
 
-	if inst != nil {
+	if inst != nil && inst.InstallationID > 0 {
 		resp.Installation = &dto.GitHubInstallationResponse{
 			ID:             inst.ID.String(),
 			InstallationID: inst.InstallationID,

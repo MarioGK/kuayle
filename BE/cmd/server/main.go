@@ -16,6 +16,7 @@ import (
 
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/config"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
@@ -150,6 +151,9 @@ func main() {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
+	workspaceTransferRepo := repository.NewWorkspaceTransferRepository(db)
+	workspaceTransferSvc := service.NewWorkspaceTransferService(workspaceTransferRepo, store)
+	workspaceTransferH := handler.NewWorkspaceTransferHandler(workspaceTransferSvc)
 
 	// GitHub integration
 	var globalGitHubApp *service.GlobalGitHubAppConfig
@@ -226,12 +230,15 @@ func main() {
 	// Workspaces (no workspace context needed for list/create)
 	api.GET("/workspaces", workspaceH.List)
 	api.POST("/workspaces", workspaceH.Create)
+	api.POST("/workspaces/import/preview", workspaceTransferH.Preview)
+	api.POST("/workspaces/import", workspaceTransferH.Import)
 
 	// Workspace-scoped routes
 	ws := api.Group("/workspaces/:slug", mw.WorkspaceMembership(workspaceRepo))
 	ws.GET("", workspaceH.Get)
 	ws.PATCH("", workspaceH.Update, mw.RequireOwner())
 	ws.DELETE("", workspaceH.Delete, mw.RequireOwner())
+	ws.GET("/export", workspaceTransferH.Export, mw.RequirePermission(domain.PermWorkspaceTransfer))
 	ws.POST("/invite", workspaceH.Invite, mw.RequirePermission("member:invite"))
 	ws.GET("/members", workspaceH.ListMembers)
 	ws.PATCH("/members/:userId", workspaceH.UpdateMemberRole, mw.RequirePermission("member:invite"))

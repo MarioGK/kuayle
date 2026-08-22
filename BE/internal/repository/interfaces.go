@@ -210,6 +210,7 @@ type GitHubRepo interface {
 	GetInstallationByWorkspace(ctx context.Context, workspaceID uuid.UUID) (*domain.GitHubInstallation, error)
 	GetInstallationByGitHubID(ctx context.Context, installationID int64) (*domain.GitHubInstallation, error)
 	UpdateInstallationToken(ctx context.Context, id uuid.UUID, token string, expiresAt *time.Time) error
+	ActivateImportedInstallation(ctx context.Context, id uuid.UUID, installationID int64, accountLogin, accountType string, installedBy uuid.UUID) error
 	DeleteInstallation(ctx context.Context, workspaceID uuid.UUID) error
 
 	CreateRepo(ctx context.Context, repo *domain.GitHubRepoModel) error

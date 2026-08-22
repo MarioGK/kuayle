@@ -5,23 +5,7 @@ class ApiClient {
 	private refreshing: Promise<void> | null = null;
 
 	async fetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-		const res = await fetch(`${this.baseUrl}${path}`, {
-			...options,
-			credentials: 'include',
-			headers: {
-				'Content-Type': 'application/json',
-				...options.headers
-			}
-		});
-
-		if (res.status === 401) {
-			if (!path.includes('/auth/refresh')) {
-				await this.refresh();
-				return this.fetch<T>(path, options);
-			}
-			goto('/login');
-			throw new Error('Unauthorized');
-		}
+		const res = await this.fetchResponse(path, options);
 
 		if (!res.ok) {
 			const error = await res.json().catch(() => ({
@@ -34,6 +18,29 @@ class ApiClient {
 		const body = await res.text();
 		if (!body) return undefined as T;
 		return JSON.parse(body) as T;
+	}
+
+	private async fetchResponse(path: string, options: RequestInit = {}): Promise<Response> {
+		const headers = new Headers(options.headers);
+		if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+			headers.set('Content-Type', 'application/json');
+		}
+		const res = await fetch(`${this.baseUrl}${path}`, {
+			...options,
+			credentials: 'include',
+			headers
+		});
+
+		if (res.status === 401) {
+			if (!path.includes('/auth/refresh')) {
+				await this.refresh();
+				return this.fetchResponse(path, options);
+			}
+			goto('/login');
+			throw new Error('Unauthorized');
+		}
+
+		return res;
 	}
 
 	private async refresh(): Promise<void> {
@@ -66,6 +73,18 @@ class ApiClient {
 
 	deleteWithBody<T>(path: string, body?: unknown): Promise<T> {
 		return this.fetch<T>(path, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined });
+	}
+
+	async blob(path: string): Promise<{ blob: Blob; filename: string | null }> {
+		const res = await this.fetchResponse(path);
+		if (!res.ok) throw await res.json().catch(() => ({ error: { code: 'UNKNOWN', message: res.statusText } }));
+		const disposition = res.headers.get('Content-Disposition');
+		const filename = disposition?.match(/filename="?([^";]+)"?/i)?.[1] ?? null;
+		return { blob: await res.blob(), filename };
+	}
+
+	postForm<T>(path: string, form: FormData): Promise<T> {
+		return this.fetch<T>(path, { method: 'POST', body: form });
 	}
 }
 

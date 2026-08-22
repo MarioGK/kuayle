@@ -45,7 +45,7 @@ The distribution model is deliberately simple:
 - no per-user software fee;
 - infrastructure, backups, monitoring, and updates remain the operator's responsibility.
 
-The product is intentionally smaller than broad project-management suites. It covers issues, cycles, projects, saved views, analytics, GitHub automation, public sharing, and real-time events. It does not currently include import/export workflows, enterprise identity, a wiki, or modules.
+The product is intentionally smaller than broad project-management suites. It covers issues, cycles, projects, saved views, analytics, GitHub automation, public sharing, real-time events, and portable per-workspace transfer. It does not currently include enterprise identity, a wiki, or modules.
 
 ## ✨ Features
 
@@ -67,6 +67,7 @@ The product is intentionally smaller than broad project-management suites. It co
 | 📊  | **Analytics**          | Workspace/team overview, burn-up, and configurable insights                     |
 | 🔗  | **Public Sharing**     | Token-based read-only links for issues and views                                 |
 | 📦  | **Asset Management**   | File uploads, signed URLs for prompt images, S3-compatible storage               |
+| 💾  | **Workspace Transfer** | Owner/admin export and new-instance import with assets and ID remapping           |
 | ⌨️  | **Command Palette**    | Global search with highlighting, keyboard shortcuts, and quick actions           |
 | 🎨  | **Rich Text Editor**   | Tiptap-based with code blocks, slash commands, mentions, task lists              |
 | 🚀  | **Release Changelog**  | Multi-release changelog modal with markdown rendering from static manifest       |
@@ -191,6 +192,18 @@ selfhosting `kuayle-machine-gateway` name.
 ## 🏠 Self-Hosting
 
 Kuayle is designed to be self-hosted. The reference stack in [`selfhosting/`](selfhosting/) includes Caddy, PostgreSQL, Redis, the backend, the frontend, and an update script. Review secrets, backups, monitoring, and host security before production use.
+
+### Portable workspace transfer
+
+Workspace owners and admins can download a versioned `.kuayle.zip` archive from **Settings → General → Workspace transfer**. An authenticated user with no workspace can choose **Import workspace** during workspace setup; an owner or admin can also start an import from the transfer settings. Import always creates a separate workspace and never overwrites an existing one.
+
+The archive contains a logical `manifest.json`, `data.json`, and the workspace's uploaded asset bytes. It preserves teams, statuses, labels, projects, cycles, issues and their relationships/history, templates, views, favorites, shared links, workspace notifications, integration metadata, AI prompts, and safe Dev Machine workspace policy/scope settings. Database and asset IDs are regenerated and references—including protected asset URLs—are remapped during import.
+
+Workspace transfer deliberately excludes password hashes, refresh tokens, personal preferences, webhook secrets, GitHub App credentials and access tokens, AI API keys, Dev Machine credentials, active machines, Docker volumes/networks, environment images, logs, sessions, and runtime artifacts. Imported webhooks, shared links, GitHub repositories/automation, and Dev Machine policy are disabled or rotated where appropriate; GitHub, AI, webhooks, and Development Environments must be reconfigured on the target instance.
+
+Users are matched to existing target-instance accounts by normalized email. The importing user becomes the new owner; all other referenced users must register on the target instance before import. The preview reports any missing emails without creating partial data.
+
+This feature transfers one logical workspace. It is not a replacement for an operator backup: disaster recovery and whole-instance migration still require PostgreSQL backups, object-storage backups, deployment configuration/secrets, and any required local Docker volumes or Development Environment OCI images.
 
 ### Prerequisites
 
