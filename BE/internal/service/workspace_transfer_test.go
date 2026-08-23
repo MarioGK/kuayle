@@ -99,6 +99,29 @@ func TestPrepareIdentityMapIncludesGitHubRepositoryReferences(t *testing.T) {
 	}
 }
 
+func TestValidateArchiveReferencesStillRejectsUnknownNonSharedLinkReferences(t *testing.T) {
+	workspaceID := uuid.New()
+	ownerID := uuid.New()
+	issueID := uuid.New()
+	missingTeamID := uuid.New()
+	parsed := &parsedWorkspaceArchive{
+		data: dto.WorkspaceTransferData{
+			Workspace: dto.WorkspaceTransferRow{"id": workspaceID.String(), "owner_id": ownerID.String()},
+			Tables: map[string][]dto.WorkspaceTransferRow{
+				"issues": {{"id": issueID.String(), "workspace_id": workspaceID.String(), "team_id": missingTeamID.String()}},
+			},
+		},
+	}
+
+	err := validateArchiveReferences(parsed, map[string]string{
+		workspaceID.String(): workspaceID.String(),
+		ownerID.String():     ownerID.String(),
+		issueID.String():     issueID.String(),
+	})
+	require.ErrorIs(t, err, ErrInvalidWorkspaceArchive)
+	require.ErrorContains(t, err, "issues.team_id references data outside the archive")
+}
+
 func TestParseWorkspaceArchiveRejectsUnsafeAndDuplicateEntries(t *testing.T) {
 	for name, entries := range map[string][]string{
 		"unsafe":    {"manifest.json", "data.json", "../escape"},
@@ -148,6 +171,10 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	githubInstallationID := uuid.New()
 	githubRepoID := uuid.New()
 	githubPRID := uuid.New()
+	validTeamSharedLinkID := uuid.New()
+	orphanedTeamSharedLinkID := uuid.New()
+	orphanedTeamID := uuid.New()
+	validTeamSharedLinkToken := randomTransferToken(32)
 	sourceSlug := "transfer-source-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
 	targetSlug := "transfer-target-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
 	memoryTargetSlug := "transfer-memory-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
@@ -217,6 +244,10 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO shared_links(id,token,workspace_id,created_by,scope,scope_id,filters,include_description,is_active) VALUES(gen_random_uuid(),$1,$2,$3,'project',$4,'{}',true,true)`, randomTransferToken(32), workspaceID, userID, projectID)
 	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO shared_links(id,token,workspace_id,created_by,scope,scope_id,filters,include_description,is_active) VALUES($1,$2,$3,$4,'team',$5,'{}',true,true)`, validTeamSharedLinkID, validTeamSharedLinkToken, workspaceID, userID, teamID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO shared_links(id,token,workspace_id,created_by,scope,scope_id,filters,include_description,is_active) VALUES($1,$2,$3,$4,'team',$5,'{}',true,true)`, orphanedTeamSharedLinkID, randomTransferToken(32), workspaceID, userID, orphanedTeamID)
+	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO notifications(id,user_id,workspace_id,issue_id,type,title) VALUES(gen_random_uuid(),$1,$2,$3,'issue_updated','Portable notification')`, userID, workspaceID, issueID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO webhooks(id,workspace_id,url,secret,events,is_active) VALUES(gen_random_uuid(),$1,'https://example.test/hook','top-secret',ARRAY['issue.created','issue.updated'],true)`, workspaceID)
@@ -263,6 +294,12 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NotContains(t, exported.data.Users[0], "password_hash")
 	require.Contains(t, exported.manifest.Omitted, "refresh_tokens")
 	require.Len(t, exported.data.Tables["teams"], 1, "rows from another workspace must not enter the archive")
+	require.Len(t, exported.data.Tables["shared_links"], 2, "only links with valid scope targets should be exported")
+	require.Contains(t, exported.manifest.Warnings, "Omitted 1 shared link with a missing scope target.")
+	for _, row := range exported.data.Tables["shared_links"] {
+		require.NotEqual(t, orphanedTeamSharedLinkID.String(), transferString(row["id"]))
+		require.NotContains(t, row, "token")
+	}
 	require.NoError(t, exported.zip.Close())
 
 	result, err := transferService.Import(ctx, archive.Path, "Transfer Target", targetSlug, userID)
@@ -301,6 +338,7 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.Equal(t, 1, counts["assets"])
 	require.Equal(t, 1, counts["webhooks"])
 	require.Equal(t, 1, counts["github_commits"])
+	require.Equal(t, 2, counts["shared_links"])
 	var importedWebhookActive, importedDevMachinesEnabled bool
 	var importedWebhookSecret string
 	require.NoError(t, db.QueryRow(`SELECT is_active,secret FROM webhooks WHERE workspace_id=$1`, targetWorkspaceID).Scan(&importedWebhookActive, &importedWebhookSecret))
@@ -358,6 +396,19 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 
 	var importedTeamID uuid.UUID
 	require.NoError(t, db.Get(&importedTeamID, `SELECT id FROM teams WHERE workspace_id=$1 AND key='ENG'`, targetWorkspaceID))
+	var importedValidTeamSharedLinkID, importedSharedLinkScopeID uuid.UUID
+	var importedSharedLinkActive bool
+	var importedSharedLinkToken string
+	require.NoError(t, db.QueryRow(`
+		SELECT id, scope_id, is_active, token
+		FROM shared_links
+		WHERE workspace_id=$1 AND scope='team'
+	`, targetWorkspaceID).Scan(&importedValidTeamSharedLinkID, &importedSharedLinkScopeID, &importedSharedLinkActive, &importedSharedLinkToken))
+	require.NotEqual(t, validTeamSharedLinkID, importedValidTeamSharedLinkID)
+	require.Equal(t, importedTeamID, importedSharedLinkScopeID)
+	require.False(t, importedSharedLinkActive)
+	require.NotEmpty(t, importedSharedLinkToken)
+	require.NotEqual(t, validTeamSharedLinkToken, importedSharedLinkToken)
 	var importedScopeRepoID uuid.UUID
 	require.NoError(t, db.Get(&importedScopeRepoID, `SELECT github_repo_id FROM dev_machine_scope_settings WHERE workspace_id=$1 AND team_id=$2`, targetWorkspaceID, importedTeamID))
 	require.Equal(t, importedRepoID, importedScopeRepoID)

@@ -75,7 +75,6 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 
 	data := dto.WorkspaceTransferData{Workspace: workspaceRow, Tables: make(map[string][]dto.WorkspaceTransferRow)}
 	userIDs := make(map[uuid.UUID]bool)
-	collectUserID(userIDs, workspaceRow["owner_id"])
 	assetStorageKeys := make(map[string]string)
 
 	for _, spec := range repository.WorkspaceTransferTableSpecs() {
@@ -84,9 +83,6 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 			return nil, fmt.Errorf("export %s: %w", spec.Name, err)
 		}
 		for _, row := range rows {
-			for _, field := range spec.UserFields {
-				collectUserID(userIDs, row[field])
-			}
 			if spec.Name == "assets" {
 				assetID := transferString(row["id"])
 				assetStorageKeys[assetID] = transferString(row["storage_key"])
@@ -95,6 +91,15 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 			sanitizeExportRow(spec.Name, row)
 		}
 		data.Tables[spec.Name] = rows
+	}
+	omittedSharedLinks := omitInvalidSharedLinks(data)
+	collectUserID(userIDs, workspaceRow["owner_id"])
+	for _, spec := range repository.WorkspaceTransferTableSpecs() {
+		for _, row := range data.Tables[spec.Name] {
+			for _, field := range spec.UserFields {
+				collectUserID(userIDs, row[field])
+			}
+		}
 	}
 
 	ids := make([]uuid.UUID, 0, len(userIDs))
@@ -129,6 +134,14 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 	for table, rows := range data.Tables {
 		counts[table] = len(rows)
 	}
+	warnings := []string{
+		"Shared-link tokens are rotated and imported links are disabled.",
+		"Webhook secrets are regenerated and imported webhooks are disabled.",
+		"Dev Machine policy is imported disabled; environment references are removed from scope settings.",
+	}
+	if omittedSharedLinks > 0 {
+		warnings = append(warnings, fmt.Sprintf("Omitted %d shared link%s with a missing scope target.", omittedSharedLinks, pluralSuffix(omittedSharedLinks)))
+	}
 	manifest := dto.WorkspaceExportManifest{
 		Format:              dto.WorkspaceExportFormat,
 		Version:             dto.WorkspaceExportVersion,
@@ -143,11 +156,7 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 			"github_app_configs", "github_installations.access_token", "ai_settings.api_key_encrypted",
 			"dev machine instances, environments, images, volumes, logs, artifacts, sessions, tokens, credentials and secret environment variables",
 		},
-		Warnings: []string{
-			"Shared-link tokens are rotated and imported links are disabled.",
-			"Webhook secrets are regenerated and imported webhooks are disabled.",
-			"Dev Machine policy is imported disabled; environment references are removed from scope settings.",
-		},
+		Warnings:                warnings,
 		RequiresReconfiguration: []string{"webhooks", "GitHub", "AI provider credentials", "Dev Machine environments"},
 	}
 
@@ -205,6 +214,59 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 	cleanup = false
 	audit.Log("workspace.exported", actorID, map[string]interface{}{"workspace_id": workspace.ID})
 	return &ExportedWorkspaceArchive{Path: path, Filename: safeTransferFilename(workspace.Slug) + ".kuayle.zip"}, nil
+}
+
+// omitInvalidSharedLinks removes links whose polymorphic target is absent from
+// this workspace export. Shared links have no database foreign key for their
+// scope target, so an old deleted team, project, or view can otherwise make a
+// complete workspace archive fail reference validation.
+func omitInvalidSharedLinks(data dto.WorkspaceTransferData) int {
+	targets := map[string]map[string]bool{
+		"team":    transferRowIDs(data.Tables["teams"]),
+		"project": transferRowIDs(data.Tables["projects"]),
+		"view":    transferRowIDs(data.Tables["views"]),
+	}
+	links := data.Tables["shared_links"]
+	kept := make([]dto.WorkspaceTransferRow, 0, len(links))
+	omitted := 0
+	for _, link := range links {
+		if validSharedLinkScopeTarget(link, targets) {
+			kept = append(kept, link)
+			continue
+		}
+		omitted++
+	}
+	data.Tables["shared_links"] = kept
+	return omitted
+}
+
+func transferRowIDs(rows []dto.WorkspaceTransferRow) map[string]bool {
+	ids := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if id := transferString(row["id"]); id != "" {
+			ids[id] = true
+		}
+	}
+	return ids
+}
+
+func validSharedLinkScopeTarget(link dto.WorkspaceTransferRow, targets map[string]map[string]bool) bool {
+	scope := transferString(link["scope"])
+	targetID := transferString(link["scope_id"])
+	if scope == "workspace" {
+		return targetID == ""
+	}
+	if _, err := uuid.Parse(targetID); err != nil {
+		return false
+	}
+	return targets[scope][targetID]
+}
+
+func pluralSuffix(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func collectUserID(target map[uuid.UUID]bool, value any) {
