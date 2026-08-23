@@ -13,6 +13,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/labstack/echo/v4"
+	log "github.com/sirupsen/logrus"
 )
 
 const maxWorkspaceImportRequestBytes = int64(1024*1024*1024 + 1024*1024)
@@ -32,6 +33,11 @@ func (h *WorkspaceTransferHandler) Export(c echo.Context) error {
 	}
 	archive, err := h.service.Export(c.Request().Context(), workspace, middleware.GetUserID(c))
 	if err != nil {
+		log.WithError(err).WithFields(log.Fields{
+			"workspace_id":   workspace.ID.String(),
+			"workspace_slug": workspace.Slug,
+			"actor_id":       middleware.GetUserID(c).String(),
+		}).Error("workspace export failed")
 		return response.InternalError(c)
 	}
 	defer os.Remove(archive.Path)

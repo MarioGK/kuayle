@@ -59,6 +59,46 @@ func TestRemapTransferValueRewritesIDsNestedJSONAndAssetURLs(t *testing.T) {
 	require.Contains(t, result["body"], "/api/workspaces/new/assets/"+newAsset)
 }
 
+func TestPrepareIdentityMapIncludesGitHubRepositoryReferences(t *testing.T) {
+	workspaceID := uuid.New()
+	ownerID := uuid.New()
+	repoID := uuid.New()
+	prID := uuid.New()
+	branchID := uuid.New()
+	commitID := uuid.New()
+	scopeSettingID := uuid.New()
+
+	data := dto.WorkspaceTransferData{
+		Workspace: dto.WorkspaceTransferRow{
+			"id":       workspaceID.String(),
+			"owner_id": ownerID.String(),
+		},
+		Tables: make(map[string][]dto.WorkspaceTransferRow),
+	}
+	for _, spec := range repository.WorkspaceTransferTableSpecs() {
+		data.Tables[spec.Name] = []dto.WorkspaceTransferRow{}
+	}
+	data.Tables["github_repos"] = []dto.WorkspaceTransferRow{{"id": repoID.String(), "workspace_id": workspaceID.String()}}
+	data.Tables["github_pull_requests"] = []dto.WorkspaceTransferRow{{"id": prID.String(), "workspace_id": workspaceID.String(), "github_repo_id": repoID.String()}}
+	data.Tables["github_branches"] = []dto.WorkspaceTransferRow{{"id": branchID.String(), "workspace_id": workspaceID.String(), "github_repo_id": repoID.String()}}
+	data.Tables["github_commits"] = []dto.WorkspaceTransferRow{{"id": commitID.String(), "workspace_id": workspaceID.String(), "github_repo_id": repoID.String(), "pr_id": prID.String()}}
+	data.Tables["dev_machine_scope_settings"] = []dto.WorkspaceTransferRow{{"id": scopeSettingID.String(), "workspace_id": workspaceID.String(), "github_repo_id": repoID.String()}}
+
+	parsed := &parsedWorkspaceArchive{
+		manifest: dto.WorkspaceExportManifest{SourceWorkspaceID: workspaceID.String()},
+		data:     data,
+	}
+	mapping, _, err := prepareIdentityMap(parsed, uuid.New(), map[string]string{ownerID.String(): uuid.New().String()})
+	require.NoError(t, err)
+	require.NoError(t, validateArchiveReferences(parsed, mapping))
+
+	for _, oldID := range []uuid.UUID{repoID, prID, branchID, commitID, scopeSettingID} {
+		newID := mapping[oldID.String()]
+		require.NotEmpty(t, newID, oldID.String())
+		require.NotEqual(t, oldID.String(), newID, oldID.String())
+	}
+}
+
 func TestParseWorkspaceArchiveRejectsUnsafeAndDuplicateEntries(t *testing.T) {
 	for name, entries := range map[string][]string{
 		"unsafe":    {"manifest.json", "data.json", "../escape"},
@@ -271,6 +311,61 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	var importedAISecret *string
 	require.NoError(t, db.Get(&importedAISecret, `SELECT api_key_encrypted FROM ai_settings WHERE workspace_id=$1`, targetWorkspaceID))
 	require.Nil(t, importedAISecret)
+
+	var importedRepoID, importedInstallationID uuid.UUID
+	var importedRepoActive bool
+	require.NoError(t, db.QueryRow(`
+		SELECT r.id, r.installation_id, r.is_active
+		FROM github_repos r
+		WHERE r.workspace_id=$1 AND r.full_name='portable/repo'
+	`, targetWorkspaceID).Scan(&importedRepoID, &importedInstallationID, &importedRepoActive))
+	require.NotEqual(t, githubRepoID, importedRepoID)
+	require.False(t, importedRepoActive)
+
+	var importedInstallationWorkspaceID uuid.UUID
+	var importedAccessToken *string
+	require.NoError(t, db.QueryRow(`
+		SELECT workspace_id, access_token
+		FROM github_installations
+		WHERE id=$1
+	`, importedInstallationID).Scan(&importedInstallationWorkspaceID, &importedAccessToken))
+	require.Equal(t, targetWorkspaceID, importedInstallationWorkspaceID)
+	require.Nil(t, importedAccessToken)
+
+	var importedPRID, importedPRRepoID uuid.UUID
+	require.NoError(t, db.QueryRow(`
+		SELECT id, github_repo_id
+		FROM github_pull_requests
+		WHERE workspace_id=$1 AND github_pr_id=111
+	`, targetWorkspaceID).Scan(&importedPRID, &importedPRRepoID))
+	require.NotEqual(t, githubPRID, importedPRID)
+	require.Equal(t, importedRepoID, importedPRRepoID)
+
+	var importedBranchRepoID, importedCommitRepoID, importedCommitPRID uuid.UUID
+	require.NoError(t, db.QueryRow(`
+		SELECT github_repo_id
+		FROM github_branches
+		WHERE workspace_id=$1 AND name='eng-1'
+	`, targetWorkspaceID).Scan(&importedBranchRepoID))
+	require.NoError(t, db.QueryRow(`
+		SELECT github_repo_id, pr_id
+		FROM github_commits
+		WHERE workspace_id=$1 AND sha='0123456789012345678901234567890123456789'
+	`, targetWorkspaceID).Scan(&importedCommitRepoID, &importedCommitPRID))
+	require.Equal(t, importedRepoID, importedBranchRepoID)
+	require.Equal(t, importedRepoID, importedCommitRepoID)
+	require.Equal(t, importedPRID, importedCommitPRID)
+
+	var importedTeamID uuid.UUID
+	require.NoError(t, db.Get(&importedTeamID, `SELECT id FROM teams WHERE workspace_id=$1 AND key='ENG'`, targetWorkspaceID))
+	var importedScopeRepoID uuid.UUID
+	require.NoError(t, db.Get(&importedScopeRepoID, `SELECT github_repo_id FROM dev_machine_scope_settings WHERE workspace_id=$1 AND team_id=$2`, targetWorkspaceID, importedTeamID))
+	require.Equal(t, importedRepoID, importedScopeRepoID)
+
+	var importedTransitionStatusID, importedTeamStatusID uuid.UUID
+	require.NoError(t, db.Get(&importedTransitionStatusID, `SELECT target_status_id FROM github_auto_transitions WHERE workspace_id=$1 AND event='pr_merged'`, targetWorkspaceID))
+	require.NoError(t, db.Get(&importedTeamStatusID, `SELECT id FROM team_statuses WHERE team_id=$1 AND slug='backlog'`, importedTeamID))
+	require.Equal(t, importedTeamStatusID, importedTransitionStatusID)
 
 	_, err = transferService.Import(ctx, archive.Path, "Conflict", targetSlug, userID)
 	require.ErrorIs(t, err, ErrWorkspaceImportSlug)
