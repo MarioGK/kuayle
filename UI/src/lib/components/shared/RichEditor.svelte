@@ -59,6 +59,7 @@
 		compact = false,
 		bubbleMenu = false,
 		borderless = false,
+		hideUploadButtons = false,
 		minHeight,
 		onupdate,
 		onsubmit,
@@ -71,7 +72,8 @@
 		onblur: onBlurProp,
 		oncursorchange,
 		oncreateissue,
-		onreworkselection
+		onreworkselection,
+		onuploadschange
 	}: {
 		content?: string;
 		placeholder?: string;
@@ -80,6 +82,7 @@
 		compact?: boolean;
 		bubbleMenu?: boolean;
 		borderless?: boolean;
+		hideUploadButtons?: boolean;
 		minHeight?: string;
 		onupdate?: (html: string) => void;
 		onsubmit?: () => void;
@@ -93,6 +96,7 @@
 		oncursorchange?: (position: number, anchor: number) => void;
 		oncreateissue?: (selectedText: string) => void;
 		onreworkselection?: (selectedText: string) => Promise<string>;
+		onuploadschange?: (pending: number) => void;
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
@@ -458,12 +462,32 @@
 		removeUploadPlaceholder(placeholder.id);
 	}
 
+	// Number of uploads started but not yet inserted into the document.
+	let pendingUploads = 0;
+
+	function setPendingUploads(delta: number) {
+		pendingUploads += delta;
+		onuploadschange?.(pendingUploads);
+	}
+
 	async function uploadFiles(files: File[], position?: number) {
-		const placeholders = reserveUploadPlaceholders(files, position);
-		for (const [index, file] of files.entries()) {
-			const placeholder = placeholders[index];
-			if (placeholder) await uploadAndInsert(file, placeholder);
+		setPendingUploads(files.length);
+		try {
+			const placeholders = reserveUploadPlaceholders(files, position);
+			for (const [index, file] of files.entries()) {
+				const placeholder = placeholders[index];
+				if (placeholder) await uploadAndInsert(file, placeholder);
+			}
+		} finally {
+			setPendingUploads(-files.length);
 		}
+	}
+
+	// Allows hosts to upload files pasted outside the editor (e.g. the issue title input).
+	export function insertFiles(files: File[]) {
+		if (!uploadUrl || files.length === 0 || !editor || editor.isDestroyed) return;
+		editor.commands.focus('end');
+		void uploadFiles(files);
 	}
 
 	function chooseFiles(imagesOnly = false) {
@@ -962,7 +986,7 @@
 			</button>
 		</div>
 	{/if}
-	{#if editable && uploadUrl && bubbleMenu}
+	{#if editable && uploadUrl && bubbleMenu && !hideUploadButtons}
 		<div class="flex items-center justify-end gap-0.5 px-1 py-0.5">
 			<button type="button" onclick={() => chooseFiles(true)} class={btnClass(false)} title={m['sharedComponents.rich_editor.upload_image']()} aria-label={m['sharedComponents.rich_editor.upload_image']()}>
 				<ImagePlus size={14} />
