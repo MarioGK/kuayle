@@ -59,6 +59,7 @@
 		compact = false,
 		bubbleMenu = false,
 		borderless = false,
+		hideUploadButtons = false,
 		minHeight,
 		onupdate,
 		onsubmit,
@@ -80,6 +81,7 @@
 		compact?: boolean;
 		bubbleMenu?: boolean;
 		borderless?: boolean;
+		hideUploadButtons?: boolean;
 		minHeight?: string;
 		onupdate?: (html: string) => void;
 		onsubmit?: () => void;
@@ -464,6 +466,13 @@
 			const placeholder = placeholders[index];
 			if (placeholder) await uploadAndInsert(file, placeholder);
 		}
+	}
+
+	// Allows hosts to upload files pasted outside the editor (e.g. the issue title input).
+	export function insertFiles(files: File[]) {
+		if (!uploadUrl || files.length === 0 || !editor || editor.isDestroyed) return;
+		editor.commands.focus('end');
+		void uploadFiles(files);
 	}
 
 	function chooseFiles(imagesOnly = false) {
@@ -962,7 +971,7 @@
 			</button>
 		</div>
 	{/if}
-	{#if editable && uploadUrl && bubbleMenu}
+	{#if editable && uploadUrl && bubbleMenu && !hideUploadButtons}
 		<div class="flex items-center justify-end gap-0.5 px-1 py-0.5">
 			<button type="button" onclick={() => chooseFiles(true)} class={btnClass(false)} title={m['sharedComponents.rich_editor.upload_image']()} aria-label={m['sharedComponents.rich_editor.upload_image']()}>
 				<ImagePlus size={14} />
