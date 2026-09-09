@@ -12,13 +12,15 @@
 		slug = '',
 		members = [],
 		labels = [],
-		onissueclick
+		onissueclick,
+		onquickadd
 	}: {
 		issuesByStatus: Record<string, Issue[]>;
 		slug?: string;
 		members?: WorkspaceMember[];
 		labels?: Label[];
 		onissueclick: (issue: Issue) => void;
+		onquickadd?: (statusId: string) => void;
 	} = $props();
 
 	// Local mutable copy for drag state
@@ -81,6 +83,7 @@
 			{onissueclick}
 			onconsider={handleConsider}
 			onfinalize={handleFinalize}
+			{onquickadd}
 		/>
 	{/each}
 </div>

@@ -8,6 +8,7 @@
 	import SubIssueCounterTag from './SubIssueCounterTag.svelte';
 	import IssueContextMenu from './IssueContextMenu.svelte';
 	import { dndzone } from 'svelte-dnd-action';
+	import { Plus } from 'lucide-svelte';
 
 	let {
 		statusId,
@@ -18,7 +19,8 @@
 		labels = [],
 		onissueclick,
 		onconsider,
-		onfinalize
+		onfinalize,
+		onquickadd
 	}: {
 		statusId: string;
 		teamStatus: TeamStatus;
@@ -29,6 +31,7 @@
 		onissueclick: (issue: Issue) => void;
 		onconsider?: (statusId: string, items: Issue[]) => void;
 		onfinalize?: (statusId: string, items: Issue[]) => void;
+		onquickadd?: (statusId: string) => void;
 	} = $props();
 
 	function handleConsider(e: CustomEvent<{ items: Issue[] }>) {
@@ -47,6 +50,15 @@
 			>{teamStatus.name}</span
 		>
 		<span class="text-xs text-[var(--color-text-tertiary)]">{issues.length}</span>
+		{#if onquickadd}
+			<button
+				onclick={() => onquickadd?.(statusId)}
+				class="ml-auto rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+				title="New issue in {teamStatus.name}"
+			>
+				<Plus size={14} />
+			</button>
+		{/if}
 	</div>
 
 	<div

@@ -614,6 +614,11 @@
 				{members}
 				{labels}
 				onissueclick={handleIssueClick}
+				onquickadd={(statusId) => {
+					// Board columns always represent statuses, independent of list group-by.
+					quickAddDefaults = { statusId };
+					showCreateIssue = true;
+				}}
 			/>
 		</div>
 	{/if}
