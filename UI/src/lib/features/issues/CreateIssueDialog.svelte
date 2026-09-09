@@ -123,6 +123,8 @@
 
 	let descriptionEditor = $state<{ insertFiles: (files: File[]) => void } | null>(null);
 	const uploadUrl = $derived(slug ? `/api/workspaces/${slug}/upload` : undefined);
+	// Uploads started in the description editor that have not been inserted yet.
+	let pendingUploads = $state(0);
 
 	function validTeam(id: string | undefined): string | undefined {
 		if (!id) return undefined;
@@ -178,6 +180,7 @@
 		title = defaultTitle ?? '';
 		description = '';
 		descriptionVersion++;
+		pendingUploads = 0;
 		selectedTemplate = null;
 		priority = defaultPriority ?? savedDefaults.priority ?? 0;
 		teamId = validTeam(defaultTeamId) ?? validTeam(savedDefaults.teamId) ?? teams[0]?.id ?? '';
@@ -207,7 +210,7 @@
 	const selectedStatus = $derived(teamStatusesState.statusById.get(statusId));
 
 	function handleSubmit() {
-		if (!title.trim() || !teamId) return;
+		if (!title.trim() || !teamId || pendingUploads > 0) return;
 		onsubmit({
 			title: title.trim(),
 			description: description.trim() || undefined,
@@ -290,6 +293,8 @@
 		title = tmpl.title || '';
 		description = tmpl.description ?? '';
 		descriptionVersion = Date.now();
+		// The editor is recreated; counts reported by the previous instance no longer apply.
+		pendingUploads = 0;
 		priority = tmpl.priority ?? 0;
 		labelIds = Array.isArray(tmpl.label_ids) ? tmpl.label_ids : [];
 		if (tmpl.assignee_id) assigneeIds = [tmpl.assignee_id];
@@ -416,6 +421,7 @@
 					minHeight="120px"
 					{uploadUrl}
 					hideUploadButtons={true}
+					onuploadschange={(pending) => (pendingUploads = pending)}
 					onupdate={(html) => (description = html)}
 				/>
 				{/key}
@@ -578,10 +584,12 @@
 				<Button
 					class="max-sm:w-full"
 					size="sm"
-					disabled={!title.trim() || !teamId}
+					disabled={!title.trim() || !teamId || pendingUploads > 0}
 					onclick={handleSubmit}
 				>
-					{m['sharedComponents.create_issue.create_issue']()}
+					{pendingUploads > 0
+						? m['sharedComponents.create_issue.uploading_attachments']()
+						: m['sharedComponents.create_issue.create_issue']()}
 				</Button>
 			</div>
 		</div>
