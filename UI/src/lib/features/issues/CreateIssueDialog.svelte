@@ -29,7 +29,9 @@
 		User,
 		Tag,
 		FolderKanban,
-		FileText
+		FileText,
+		ImagePlus,
+		Paperclip
 	} from 'lucide-svelte';
 
 	let {
@@ -118,6 +120,9 @@
 	let assigneeOpen = $state(false);
 	let labelsOpen = $state(false);
 	let cycleOpen = $state(false);
+
+	let descriptionEditor = $state<{ insertFiles: (files: File[]) => void } | null>(null);
+	const uploadUrl = $derived(slug ? `/api/workspaces/${slug}/upload` : undefined);
 
 	function validTeam(id: string | undefined): string | undefined {
 		if (!id) return undefined;
@@ -231,7 +236,37 @@
 			.trim();
 	}
 
+	function pastedFiles(data: DataTransfer | null): File[] {
+		if (!data) return [];
+		const files: File[] = [];
+		for (const item of data.items) {
+			if (item.kind !== 'file') continue;
+			const file = item.getAsFile();
+			if (file) files.push(file);
+		}
+		return files;
+	}
+
+	function chooseFiles(imagesOnly = false) {
+		if (!uploadUrl) return;
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.multiple = !imagesOnly;
+		if (imagesOnly) input.accept = 'image/*';
+		input.onchange = () => {
+			const files = Array.from(input.files ?? []);
+			if (files.length > 0) descriptionEditor?.insertFiles(files);
+		};
+		input.click();
+	}
+
 	function handleTitlePaste(e: ClipboardEvent) {
+		const files = pastedFiles(e.clipboardData);
+		if (files.length > 0) {
+			e.preventDefault();
+			descriptionEditor?.insertFiles(files);
+			return;
+		}
 		if (!parentIssue || !onbulkcreate) return;
 		const text = e.clipboardData?.getData('text') ?? '';
 		const titles = text.split(/\r?\n/).map(titleFromListLine).filter(Boolean);
@@ -370,6 +405,7 @@
 			<div class="mt-4 max-h-[calc(60vh-120px)] overflow-y-auto max-sm:flex-1 max-sm:[max-height:none] max-sm:overflow-y-auto">
 				{#key descriptionVersion}
 				<RichEditor
+					bind:this={descriptionEditor}
 					content={description}
 					workspaceSlug={slug}
 					{members}
@@ -378,6 +414,8 @@
 					bubbleMenu={true}
 					borderless={true}
 					minHeight="120px"
+					{uploadUrl}
+					hideUploadButtons={true}
 					onupdate={(html) => (description = html)}
 				/>
 				{/key}
@@ -509,19 +547,43 @@
 		</div>
 
 		<!-- Footer -->
-		<div class="flex items-center justify-end gap-3 px-4 py-2.5 max-sm:sticky max-sm:bottom-0 max-sm:shrink-0 max-sm:flex-col max-sm:items-stretch max-sm:border-t max-sm:border-[var(--app-border)] max-sm:bg-[var(--color-bg-secondary)] max-sm:pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-			<label class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
-				<Switch bind:checked={createMore} size="sm" />
-				{m['sharedComponents.create_issue.create_more']()}
-			</label>
-			<Button
-				class="max-sm:w-full"
-				size="sm"
-				disabled={!title.trim() || !teamId}
-				onclick={handleSubmit}
-			>
-				{m['sharedComponents.create_issue.create_issue']()}
-			</Button>
+		<div class="flex items-center gap-3 px-4 py-2.5 max-sm:sticky max-sm:bottom-0 max-sm:shrink-0 max-sm:flex-col max-sm:items-stretch max-sm:border-t max-sm:border-[var(--app-border)] max-sm:bg-[var(--color-bg-secondary)] max-sm:pb-[calc(1rem+env(safe-area-inset-bottom,0px))] {uploadUrl ? 'justify-between' : 'justify-end'}">
+			{#if uploadUrl}
+				<div class="flex items-center gap-1 max-sm:order-2">
+					<button
+						type="button"
+						onclick={() => chooseFiles(true)}
+						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+						title={m['sharedComponents.rich_editor.upload_image']()}
+						aria-label={m['sharedComponents.rich_editor.upload_image']()}
+					>
+						<ImagePlus size={14} />
+					</button>
+					<button
+						type="button"
+						onclick={() => chooseFiles()}
+						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+						title={m['sharedComponents.rich_editor.attach_files']()}
+						aria-label={m['sharedComponents.rich_editor.attach_files']()}
+					>
+						<Paperclip size={14} />
+					</button>
+				</div>
+			{/if}
+			<div class="flex items-center gap-3 max-sm:order-1 max-sm:justify-between">
+				<label class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
+					<Switch bind:checked={createMore} size="sm" />
+					{m['sharedComponents.create_issue.create_more']()}
+				</label>
+				<Button
+					class="max-sm:w-full"
+					size="sm"
+					disabled={!title.trim() || !teamId}
+					onclick={handleSubmit}
+				>
+					{m['sharedComponents.create_issue.create_issue']()}
+				</Button>
+			</div>
 		</div>
 	</Dialog.Content>
 </Dialog.Root>
