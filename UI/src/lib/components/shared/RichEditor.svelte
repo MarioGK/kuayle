@@ -72,7 +72,8 @@
 		onblur: onBlurProp,
 		oncursorchange,
 		oncreateissue,
-		onreworkselection
+		onreworkselection,
+		onuploadschange
 	}: {
 		content?: string;
 		placeholder?: string;
@@ -95,6 +96,7 @@
 		oncursorchange?: (position: number, anchor: number) => void;
 		oncreateissue?: (selectedText: string) => void;
 		onreworkselection?: (selectedText: string) => Promise<string>;
+		onuploadschange?: (pending: number) => void;
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
@@ -460,11 +462,24 @@
 		removeUploadPlaceholder(placeholder.id);
 	}
 
+	// Number of uploads started but not yet inserted into the document.
+	let pendingUploads = 0;
+
+	function setPendingUploads(delta: number) {
+		pendingUploads += delta;
+		onuploadschange?.(pendingUploads);
+	}
+
 	async function uploadFiles(files: File[], position?: number) {
-		const placeholders = reserveUploadPlaceholders(files, position);
-		for (const [index, file] of files.entries()) {
-			const placeholder = placeholders[index];
-			if (placeholder) await uploadAndInsert(file, placeholder);
+		setPendingUploads(files.length);
+		try {
+			const placeholders = reserveUploadPlaceholders(files, position);
+			for (const [index, file] of files.entries()) {
+				const placeholder = placeholders[index];
+				if (placeholder) await uploadAndInsert(file, placeholder);
+			}
+		} finally {
+			setPendingUploads(-files.length);
 		}
 	}
 
