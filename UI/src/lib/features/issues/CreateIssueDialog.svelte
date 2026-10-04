@@ -292,7 +292,7 @@
 		selectedTemplate = tmpl;
 		title = tmpl.title || '';
 		description = tmpl.description ?? '';
-		descriptionVersion = Date.now();
+		descriptionVersion++;
 		// The editor is recreated; counts reported by the previous instance no longer apply.
 		pendingUploads = 0;
 		priority = tmpl.priority ?? 0;
@@ -409,6 +409,7 @@
 			/>
 			<div class="mt-4 max-h-[calc(60vh-120px)] overflow-y-auto max-sm:flex-1 max-sm:[max-height:none] max-sm:overflow-y-auto">
 				{#key descriptionVersion}
+				{@const editorVersion = descriptionVersion}
 				<RichEditor
 					bind:this={descriptionEditor}
 					content={description}
@@ -421,7 +422,9 @@
 					minHeight="120px"
 					{uploadUrl}
 					hideUploadButtons={true}
-					onuploadschange={(pending) => (pendingUploads = pending)}
+					onuploadschange={(pending) => {
+						if (open && editorVersion === descriptionVersion) pendingUploads = pending;
+					}}
 					onupdate={(html) => (description = html)}
 				/>
 				{/key}

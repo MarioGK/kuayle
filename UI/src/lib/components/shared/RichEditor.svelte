@@ -393,12 +393,12 @@
 		}
 	});
 
-	async function uploadFile(file: File): Promise<UploadedFile | null> {
+	async function uploadFile(file: File, signal: AbortSignal): Promise<UploadedFile | null> {
 		if (!uploadUrl) return null;
 		const form = new FormData();
 		form.append('file', file);
 		try {
-			const res = await fetch(uploadUrl, { method: 'POST', body: form, credentials: 'include' });
+			const res = await fetch(uploadUrl, { method: 'POST', body: form, credentials: 'include', signal });
 			if (!res.ok) {
 				const data = await res.json().catch(() => null);
 				appToast.error(data?.error?.message ?? data?.message ?? `Failed to upload ${file.name}`);
@@ -406,7 +406,10 @@
 			}
 			const data = await res.json();
 			const result = data.data ?? data;
-			if (!result.url) return null;
+			if (!result.url) {
+				appToast.error(`Failed to upload ${file.name}`);
+				return null;
+			}
 			return {
 				url: result.url,
 				filename: result.filename ?? file.name,
@@ -414,7 +417,7 @@
 				contentType: result.content_type ?? file.type
 			};
 		} catch {
-			appToast.error(`Failed to upload ${file.name}`);
+			if (!signal.aborted) appToast.error(`Failed to upload ${file.name}`);
 			return null;
 		}
 	}
@@ -438,8 +441,8 @@
 		editor.view.dispatch(editor.state.tr.setMeta(uploadPlaceholderKey, { remove: [id] }));
 	}
 
-	async function uploadAndInsert(file: File, placeholder: UploadPlaceholder) {
-		const uploaded = await uploadFile(file);
+	async function uploadAndInsert(file: File, placeholder: UploadPlaceholder, signal: AbortSignal) {
+		const uploaded = await uploadFile(file, signal);
 		if (!uploaded || !editor || editor.isDestroyed) {
 			removeUploadPlaceholder(placeholder.id);
 			return;
@@ -464,21 +467,29 @@
 
 	// Number of uploads started but not yet inserted into the document.
 	let pendingUploads = 0;
+	let uploadsDisposed = false;
+	const uploadControllers = new Set<AbortController>();
 
 	function setPendingUploads(delta: number) {
+		if (uploadsDisposed) return;
 		pendingUploads += delta;
 		onuploadschange?.(pendingUploads);
 	}
 
 	async function uploadFiles(files: File[], position?: number) {
+		if (uploadsDisposed || !uploadUrl || files.length === 0 || !editor || editor.isDestroyed) return;
+		const controller = new AbortController();
+		uploadControllers.add(controller);
 		setPendingUploads(files.length);
 		try {
 			const placeholders = reserveUploadPlaceholders(files, position);
 			for (const [index, file] of files.entries()) {
+				if (controller.signal.aborted) break;
 				const placeholder = placeholders[index];
-				if (placeholder) await uploadAndInsert(file, placeholder);
+				if (placeholder) await uploadAndInsert(file, placeholder, controller.signal);
 			}
 		} finally {
+			uploadControllers.delete(controller);
 			setPendingUploads(-files.length);
 		}
 	}
@@ -513,13 +524,14 @@
 							handlePaste(_view: any, event: ClipboardEvent) {
 								const items = event.clipboardData?.items;
 								if (!items) return false;
-								for (const item of items) {
-									if (item.kind === 'file') {
-										event.preventDefault();
-										const file = item.getAsFile();
-										if (file) void uploadFiles([file]);
-										return true;
-									}
+								const files = Array.from(items)
+									.filter((item) => item.kind === 'file')
+									.map((item) => item.getAsFile())
+									.filter((file): file is File => file !== null);
+								if (files.length > 0) {
+									event.preventDefault();
+									void uploadFiles(files);
+									return true;
 								}
 								return false;
 							},
@@ -798,6 +810,9 @@
 	});
 
 	onDestroy(() => {
+		uploadsDisposed = true;
+		uploadControllers.forEach((controller) => controller.abort());
+		uploadControllers.clear();
 		cursorElements.forEach(el => el.remove());
 		if (rewriteAnimationTimer) clearTimeout(rewriteAnimationTimer);
 		editor?.destroy();
