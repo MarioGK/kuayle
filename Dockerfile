@@ -8,9 +8,10 @@ RUN npm run build
 
 # Stage 2: Build Caddy from source with patched Go
 FROM golang:1.26.8-alpine AS caddy-builder
+ARG SECURITY_REFRESH=initial
 RUN apk add --no-cache git
-RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-RUN xcaddy build latest --replace golang.org/x/text=golang.org/x/text@v0.41.0 \
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.6
+RUN xcaddy build v2.11.4 --with google.golang.org/grpc@v1.83.2 --replace golang.org/x/text=golang.org/x/text@v0.41.0 \
     --replace golang.org/x/net=golang.org/x/net@v0.57.0 \
     --replace golang.org/x/crypto=golang.org/x/crypto@v0.55.0
 
@@ -24,6 +25,7 @@ RUN CGO_ENABLED=0 go build -o server ./cmd/server
 
 # Stage 4: Final image
 FROM alpine:3.23
+ARG SECURITY_REFRESH=initial
 RUN apk update && apk upgrade --no-cache && apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=caddy-builder /go/caddy /usr/bin/caddy

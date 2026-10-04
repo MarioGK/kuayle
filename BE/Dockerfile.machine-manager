@@ -5,7 +5,8 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /machine-manager ./cmd/machine-manager
 
-FROM alpine:3.22
+FROM alpine:3.23
+ARG SECURITY_REFRESH=initial
 RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata \
     && addgroup -g 1000 kuayle \
     && adduser -D -u 1000 -G kuayle kuayle
