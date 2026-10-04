@@ -10,7 +10,9 @@ RUN npm run build
 FROM golang:1.26.8-alpine AS caddy-builder
 RUN apk add --no-cache git
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-RUN xcaddy build latest --replace golang.org/x/text=golang.org/x/text@v0.39.0
+RUN xcaddy build latest --replace golang.org/x/text=golang.org/x/text@v0.41.0 \
+    --replace golang.org/x/net=golang.org/x/net@v0.57.0 \
+    --replace golang.org/x/crypto=golang.org/x/crypto@v0.55.0
 
 # Stage 3: Build backend
 FROM golang:1.26.8-alpine AS be-builder
