@@ -163,6 +163,10 @@ jobs:
           cache-from: type=gha,scope=dev-machine-scan-${{ matrix.id }}
           cache-to: type=gha,mode=min,scope=dev-machine-scan-${{ matrix.id }}
 
+      - name: Smoke test IDE runtime
+        if: matrix.id == 'ide'
+        run: ./devmachine/ide/smoke-test.sh kuayle-dev-machine-ide:scan
+
       - name: Scan image
         uses: aquasecurity/trivy-action@v0.36.0
         with:

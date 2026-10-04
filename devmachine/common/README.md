@@ -24,3 +24,14 @@ pins, review the source and dependency compatibility, build the IDE and all thre
 agent images, run their version checks, and scan at HIGH/CRITICAL severity. Remove
 the local guard only after an upstream fix passes the negative and positive cache
 regressions; updating the package version alone is insufficient.
+
+## Keeping OS package layers fresh
+
+Build and security workflows pull their base images and pass a UTC-day
+`SECURITY_REFRESH` build argument. Dockerfiles declare it immediately before OS
+package updates, so changing the day refreshes those cached package layers while
+retaining unrelated build caches. Local builds can request the same refresh with
+`--pull --build-arg SECURITY_REFRESH=$(date -u +%F)`. Version and checksum pins
+remain explicit: dependency updates must still pass runtime smoke checks and the
+HIGH/CRITICAL vulnerability and secret scan gates. The IDE startup, HTTP and FTP
+consumer smoke test also runs in security CI.
