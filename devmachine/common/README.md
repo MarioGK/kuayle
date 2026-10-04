@@ -35,3 +35,7 @@ retaining unrelated build caches. Local builds can request the same refresh with
 remain explicit: dependency updates must still pass runtime smoke checks and the
 HIGH/CRITICAL vulnerability and secret scan gates. The IDE startup, HTTP and FTP
 consumer smoke test also runs in security CI.
+
+Development images build on native amd64 and ARM64 GitHub runners. This avoids
+QEMU-only installer failures while running version checks, the IDE runtime smoke
+and HIGH/CRITICAL vulnerability and secret scans on both supported architectures.
